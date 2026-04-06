@@ -1,0 +1,81 @@
+# .github/workflows/noise_scanner.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# GitHub Actions 스케줄러
+#
+# 매일 자동 실행:
+#   - 23:30 UTC = 한국시간 08:30 (장전 브리핑)
+#   - 07:00 UTC = 한국시간 16:00 (장후 브리핑)
+#
+# 설정 방법:
+#   1. GitHub 레포 → Settings → Secrets and variables → Actions
+#   2. 아래 3개 Secret 추가:
+#      - ANTHROPIC_API_KEY
+#      - TELEGRAM_BOT_TOKEN
+#      - TELEGRAM_CHAT_ID
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: 노이즈 스캐너 자동 브리핑
+
+on:
+  schedule:
+    # 장전 브리핑: KST 08:30 = UTC 23:30 (전날)
+    - cron: "30 23 * * 0-4"   # 일~목 (월~금 KST 기준)
+    # 장후 브리핑: KST 16:00 = UTC 07:00
+    - cron: "0 7 * * 1-5"     # 월~금
+
+  # 수동 트리거 (테스트용)
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "브리핑 세션"
+        required: true
+        default: "morning"
+        type: choice
+        options:
+          - morning
+          - afternoon
+      test_mode:
+        description: "테스트 모드 (텔레그램 미전송)"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: 장전 브리핑 실행 (08:30 KST)
+        if: github.event.schedule == '30 23 * * 0-4' || (github.event_name == 'workflow_dispatch' && inputs.session == 'morning')
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          ARGS="--session morning"
+          if [ "${{ inputs.test_mode }}" = "true" ]; then ARGS="$ARGS --test"; fi
+          python main.py $ARGS
+
+      - name: 장후 브리핑 실행 (16:00 KST)
+        if: github.event.schedule == '0 7 * * 1-5' || (github.event_name == 'workflow_dispatch' && inputs.session == 'afternoon')
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          ARGS="--session afternoon"
+          if [ "${{ inputs.test_mode }}" = "true" ]; then ARGS="$ARGS --test"; fi
+          python main.py $ARGS
